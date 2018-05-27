@@ -3,6 +3,7 @@ package solarlunar
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 )
@@ -13,10 +14,14 @@ var MAX_YEAR = 2049
 var DATELAYOUT = "2006-01-02"
 var STARTDATESTR = "1900-01-30"
 
+var TIANGAN = []string{"甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"}
+var DIZHI = []string{"子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"}
+var ANIMALS = []string{"鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"}
+var DIZHI_MONTH = []string{"寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥", "子", "丑"}
 var CHINESENUMBER = []string{"一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"}
 var CHINESENUMBERSPECIAL = []string{"正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "腊"}
+var WEEBNUMBER = map[string]string{"Monday": "一", "Tuesday": "二", "Wednesday": "三", "Thursday": "四", "Friday": "五", "Saturday": "六", "Sunday": "日"}
 var MONTHNUMBER = map[string]int{"January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6, "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12}
-
 var LUNAR_INFO = []int{
 	0x04bd8, 0x04ae0, 0x0a570, 0x054d5, 0x0d260, 0x0d950, 0x16554, 0x056a0, 0x09ad0, 0x055d2,
 	0x04ae0, 0x0a5b6, 0x0a4d0, 0x0d250, 0x1d255, 0x0b540, 0x0d6a0, 0x0ada2, 0x095b0, 0x14977,
@@ -33,6 +38,19 @@ var LUNAR_INFO = []int{
 	0x07954, 0x06aa0, 0x0ad50, 0x05b52, 0x04b60, 0x0a6e6, 0x0a4e0, 0x0d260, 0x0ea65, 0x0d530,
 	0x05aa0, 0x076a3, 0x096d0, 0x04bd7, 0x04ad0, 0x0a4d0, 0x1d0b6, 0x0d250, 0x0d520, 0x0dd45,
 	0x0b5a0, 0x056d0, 0x055b2, 0x049b0, 0x0a577, 0x0a4b0, 0x0aa50, 0x1b255, 0x06d20, 0x0ada0}
+
+/**
+* 日柱依照高氏公式计算, 需要世纪常数, 月基常数
+* https://gss0.bdstatic.com/94o3dSag_xI4khGkpoWK1HF6hhy/baike/s%3D247/sign=4c4b339e92eef01f49141fc1d7fc99e0/a686c9177f3e670931f9cf053dc79f3df9dc554b.jpg
+**/
+
+// 月基数
+var M = map[int]int{3: 0, 5: 1, 7: 2, 9: 4, 11: 5, 13: 6, 4: 31, 6: 326, 8: 33, 10: 34, 12: 35, 14: 37}
+
+//世纪常数, 预算好
+var X = map[int]int{17: -3, 18: 41, 19: 25, 20: 9, 21: -6, 22: 38, 23: 22, 24: 6, 25: -9, 26: 35}
+
+//干支表, 60年一轮回
 
 func LunarToSolar(date string, leapMonthFlag bool) string {
 	loc, _ := time.LoadLocation("Local")
@@ -107,14 +125,29 @@ func LunarToSolar(date string, leapMonthFlag bool) string {
 	return myDate.Format(DATELAYOUT)
 }
 
+// 星期
+func WeedToChinese() string {
+	return "星期" + WEEBNUMBER[time.Now().Weekday().String()]
+}
+
 func SolarToChineseLuanr(date string) string {
+
+	// fmt.Println(date)
+
 	lunarYear, lunarMonth, lunarDay, leapMonth, leapMonthFlag := calculateLunar(date)
-	result := cyclical(lunarYear) + "年"
+	result := cyclical(lunarYear+lunarDay-lunarDay) + "年"
 	if leapMonthFlag && (lunarMonth == leapMonth) {
 		result += "闰"
 	}
-	result += CHINESENUMBERSPECIAL[lunarMonth-1] + "月"
-	result += chineseDayString(lunarDay) + "日"
+
+	// result += CHINESENUMBERSPECIAL[lunarMonth-1] + "月"
+	// result += DIZHI_MONTH[lunarMonth-1] + "月"
+
+	result += chineseMonthTD(lunarMonth-1, TIANGAN[(lunarYear-1900+36)%10])
+	//日柱
+	result += chineseDayTD(date) + "日"
+	// fmt.Println(lunarDay)
+	// result += chineseDayString(lunarDay) + "日"
 	return result
 }
 
@@ -137,7 +170,7 @@ func SolarToSimpleLuanr(date string) string {
 	return result
 }
 
-func SolarToLuanr(date string) (string,bool) {
+func SolarToLuanr(date string) (string, bool) {
 	lunarYear, lunarMonth, lunarDay, leapMonth, leapMonthFlag := calculateLunar(date)
 	result := strconv.Itoa(lunarYear) + "-"
 	if lunarMonth < 10 {
@@ -152,12 +185,11 @@ func SolarToLuanr(date string) (string,bool) {
 	}
 
 	if leapMonthFlag && (lunarMonth == leapMonth) {
-		return result,true
+		return result, true
 	} else {
-		return result,false
+		return result, false
 	}
 }
-
 
 func calculateLunar(date string) (lunarYear, lunarMonth, lunarDay, leapMonth int, leapMonthFlag bool) {
 	loc, _ := time.LoadLocation("Local")
@@ -282,11 +314,54 @@ func daysBwteen(myDate time.Time, startDate time.Time) int {
 	return int(subValue)
 }
 
+// 月份转为天干地支
+func chineseMonthTD(lunar int, year string) string {
+
+	JY := []string{"丙", "丁", "戊", "己", "庚", "辛", "壬", "癸", "甲", "乙", "丙", "丁"}
+	YG := []string{"戊", "己", "庚", "辛", "壬", "癸", "甲", "乙", "丙", "丁", "戊", "己"}
+	BX := []string{"庚", "辛", "壬", "癸", "甲", "乙", "丙", "丁", "戊", "己", "庚", "辛"}
+	DR := []string{"壬", "癸", "甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"}
+	WK := []string{"甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸", "甲", "乙"}
+	Pool := map[string][]string{"甲": JY, "己": JY, "乙": YG, "庚": YG, "丙": BX, "辛": BX, "丁": DR, "壬": DR, "戊": WK, "癸": WK}
+
+	m := lunar
+	endM := DIZHI_MONTH[m]
+
+	lunarStr := Pool[year][lunar] + endM + "月"
+
+	return lunarStr
+}
+
+func getDate(date string) (year int, month int, day int) {
+	loc, _ := time.LoadLocation("Local")
+	myDate, err := time.ParseInLocation(DATELAYOUT, date, loc)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	year = myDate.Year()
+	month = int(myDate.Month())
+	day = myDate.Day()
+	return
+}
+
+//日柱计算
+func chineseDayTD(date string) string {
+	year, month, day := getDate(date)
+	//公元年数后两位数
+	s := year % 10e1
+	u := s % 4
+	m := M[month]
+	d := day
+	// _x := year / 100
+	x := X[int(math.Floor(float64(year/100+1)))]
+	// 高氏公式
+	r := int(math.Floor(float64(s/4))*6) + 5*(u+int(math.Floor(float64(s/4))*3)) + m + d + x
+
+	return TIANGAN[r%10-1] + DIZHI[r%12-1]
+}
+
 func cyclicalm(num int) string {
-	tianGan := []string{"甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"}
-	diZhi := []string{"子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"}
-	animals := []string{"鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"}
-	return tianGan[num%10] + diZhi[num%12] + animals[num%12]
+	return TIANGAN[num%10] + DIZHI[num%12] + ANIMALS[num%12]
 }
 
 func cyclical(year int) string {
